@@ -1,7 +1,5 @@
 'use client';
 
-import { useMemo, useState, useEffect } from 'react';
-
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { Input } from '@/components/ui/input';
 import {
@@ -11,16 +9,17 @@ import {
 } from '@/components/ui/chart';
 import { Card, CardContent } from '@/components/ui/card';
 
-import { formatCurrency, formatDuration } from '@/lib/utils';
+import { formatCurrency, formatDuration, paymentFigures } from '@/lib/utils';
 
 export type LoanType = {
   balance: number;
   interestRate: number;
   monthlyPayment: number;
-  totalInterestPaid: number;
-  totalPrincipalPaid: number;
-  totalPaid: number;
-  totalMonths: number;
+};
+
+export type PaymentsViewProps = {
+  loan: LoanType;
+  onLoanChange: (loan: LoanType) => void;
 };
 
 const chartConfig = {
@@ -38,47 +37,6 @@ const chartConfig = {
   },
 };
 
-function calcPayments(
-  loanAmount: number,
-  monthlyPayment: number,
-  interestRate: number
-) {
-  let balance = loanAmount;
-  const monthlyInterestRate = interestRate / 12 / 100;
-  let month = 1;
-  let totalInterest = 0;
-  let totalPrincipal = 0;
-  const payments = [];
-
-  while (balance > 0) {
-    const interest = balance * monthlyInterestRate;
-    let principal = monthlyPayment - interest;
-    totalInterest += interest;
-    totalPrincipal += principal;
-
-    if (principal > balance) {
-      principal = balance;
-    }
-
-    balance -= principal;
-
-    payments.push({
-      month: month,
-      interest: parseFloat(interest.toFixed(2)),
-      totalInterest: parseFloat(totalInterest.toFixed(2)),
-      principal: parseFloat(principal.toFixed(2)),
-      totalPrincipal: parseFloat(totalPrincipal.toFixed(2)),
-      balance: parseFloat(balance.toFixed(2)),
-    });
-
-    month++;
-
-    if (principal <= 0) break;
-  }
-
-  return payments;
-}
-
 function formatDate(additionalMonths: number) {
   const date = new Date();
   const currentMonth = date.getMonth();
@@ -89,62 +47,41 @@ function formatDate(additionalMonths: number) {
   }).format(date);
 }
 
-type PaymentsViewProps = {
-  onLoanChange: (loan: LoanType) => void;
-};
+export function PaymentsView({ loan, onLoanChange }: PaymentsViewProps) {
+  const {
+    payments,
+    totalInterestPaid,
+    totalPrincipalPaid,
+    totalPaid,
+    totalMonths,
+  } = paymentFigures(loan.balance, loan.monthlyPayment, loan.interestRate);
 
-export function PaymentsView({ onLoanChange }: PaymentsViewProps) {
-  const [loanInput, setLoadInput] = useState({
-    balance: 30000,
-    interestRate: 10,
-    minMonthlyPayment: 1000,
-  });
+  const debtCompletionDate = formatDate(payments.length);
 
-  const payments = useMemo(() => {
-    return calcPayments(
-      loanInput.balance,
-      loanInput.minMonthlyPayment,
-      loanInput.interestRate
-    );
-  }, [loanInput.balance, loanInput.minMonthlyPayment, loanInput.interestRate]);
+  const loanInputMap = {
+    balance: { label: 'Loan Amount', suffix: '$', value: loan.balance },
+    monthlyPayment: {
+      label: 'Monthly Payment',
+      suffix: '$',
+      value: loan.monthlyPayment,
+    },
+    interestRate: {
+      label: 'Annual Interest Rate',
+      suffix: '%',
+      value: loan.interestRate,
+    },
+  };
 
-  const totalInterestPaid = useMemo(() => {
-    return payments.reduce((total, { interest }) => (total += interest), 0);
-  }, [payments]);
-
-  const totalPrincipalPaid = useMemo(() => {
-    return payments.reduce((total, { principal }) => (total += principal), 0);
-  }, [payments]);
-
-  const totalPaid = useMemo(() => {
-    return totalInterestPaid + totalPrincipalPaid;
-  }, [totalInterestPaid, totalPrincipalPaid]);
-
-  const totalTime = useMemo(() => {
-    const months = payments.length;
-    const years = Number(months / 12).toFixed(2);
-    return { months, years };
-  }, [payments]);
-
-  const debtCompletionDate = useMemo(() => {
-    return formatDate(payments.length);
-  }, [payments]);
-
-  function handleInput(input: string, key: keyof typeof loanInput) {
-    const test = { ...loanInput };
-    test[key] = Number(input);
-    setLoadInput(test);
+  function handleInput(input: string, key: keyof LoanType) {
+    const newLoanValues = { ...loan };
+    newLoanValues[key] = Number(input);
+    onLoanChange(newLoanValues);
   }
 
-  const LoanInputs = Object.keys(loanInput).map((key) => {
-    const loanInputMap = {
-      balance: { label: 'Loan Amount', suffix: '$' },
-      interestRate: { label: 'Annual Interest Rate', suffix: '%' },
-      minMonthlyPayment: { label: 'Monthly Payment', suffix: '$' },
-    };
-    const label = loanInputMap[key as keyof typeof loanInput].label;
-    const suffix = loanInputMap[key as keyof typeof loanInput].suffix;
-    const value = loanInput[key as keyof typeof loanInput];
+  const LoanInputs = Object.keys(loanInputMap).map((key) => {
+    const label = loanInputMap[key as keyof typeof loanInputMap].label;
+    const suffix = loanInputMap[key as keyof typeof loanInputMap].suffix;
+    const value = loanInputMap[key as keyof typeof loanInputMap].value;
     return (
       <div key={key} className="flex flex-col sm:w-fit w-full gap-1.5">
         <label className="text-sm text-gray-800" htmlFor={key}>
@@ -153,41 +90,18 @@ export function PaymentsView({ onLoanChange }: PaymentsViewProps) {
         <Input
           suffix={suffix}
           value={value}
-          onChange={(e) =>
-            handleInput(e.target.value, key as keyof typeof loanInput)
-          }
+          onChange={(e) => handleInput(e.target.value, key as keyof LoanType)}
         />
       </div>
     );
   });
-
-  useEffect(() => {
-    onLoanChange({
-      balance: loanInput.balance,
-      interestRate: loanInput.interestRate,
-      monthlyPayment: loanInput.minMonthlyPayment,
-      totalMonths: totalTime.months,
-      totalInterestPaid,
-      totalPrincipalPaid,
-      totalPaid,
-    });
-  }, [
-    loanInput.balance,
-    loanInput.minMonthlyPayment,
-    loanInput.interestRate,
-    totalInterestPaid,
-    totalPrincipalPaid,
-    totalPaid,
-    totalTime,
-    onLoanChange,
-  ]);
 
   return (
     <div className="w-full flex flex-col gap-4">
       <div className="flex gap-4 flex-wrap">{LoanInputs}</div>
       <div>
         You will be debt free in {debtCompletionDate} (
-        {formatDuration(totalTime.months)} from now)
+        {formatDuration(totalMonths)} from now)
       </div>
       <div className="grid grid-rows-3 grid-cols-2 w-fit gap-x-4">
         <span>Interest Paid:</span>
